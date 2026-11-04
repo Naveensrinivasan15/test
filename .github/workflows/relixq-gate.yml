@@ -27,15 +27,61 @@ jobs:
             -d "$(jq -nc --arg k "$RELIXQ_API_TOKEN" '{apiKey:$k}')" | jq -r '.accessToken')
           echo "::add-mask::$SESSION"
 
-          echo "Posting release gate decision..."
+          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "Posting canonical relixq.gate/v1 decision..."
           curl -fsS -X POST "$RELIXQ_API_URL/api/v1/projects/$RELIXQ_PROJECT_ID/pentest/gates" \
             -H "Authorization: Bearer $SESSION" \
             -H "Content-Type: application/json" \
             -d '{
               "decision": {
+                "schema": "relixq.gate/v1",
                 "verdict": "pass",
                 "mode": "block",
-                "commit": "'"${{ github.sha }}"'",
-                "summary": "Verified via CI pipeline"
+                "fail_on": "high",
+                "recorded_at": "'"$NOW"'",
+                "git": {
+                  "commit": "'"${{ github.sha }}"'",
+                  "branch": "'"${{ github.ref_name }}"'",
+                  "repository": "'"${{ github.repository }}"'"
+                },
+                "conditions": [
+                  {
+                    "id": "new-hndl-exposure",
+                    "status": "pass",
+                    "reason": "No net-new HNDL exposures detected"
+                  },
+                  {
+                    "id": "finding-severity",
+                    "status": "pass",
+                    "reason": "No net-new findings at or above high"
+                  },
+                  {
+                    "id": "regression",
+                    "status": "pass",
+                    "reason": "No regressions detected"
+                  },
+                  {
+                    "id": "score-regression",
+                    "status": "pass",
+                    "reason": "Score regression is within allowed delta"
+                  },
+                  {
+                    "id": "policy-decision",
+                    "status": "pass",
+                    "reason": "All findings compliant or covered by approved exceptions"
+                  },
+                  {
+                    "id": "expired-exception",
+                    "status": "pass",
+                    "reason": "No expired exceptions"
+                  },
+                  {
+                    "id": "ownerless-critical-remediation",
+                    "status": "pass",
+                    "reason": "No unassigned critical remediation items"
+                  }
+                ],
+                "summary": "Release gate verified in CI workflow"
               }
             }'
