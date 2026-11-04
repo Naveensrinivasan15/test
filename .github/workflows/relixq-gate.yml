@@ -1,4 +1,4 @@
-name: RelixQ Release Gate
+name: RelixQ Release Gate Check
 
 on:
   push:
@@ -7,22 +7,37 @@ on:
     branches: [ main, master ]
 
 jobs:
-  gate:
+  gate-check:
     name: Run Release Gate Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+      checks: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Install RelixQ CLI
+        run: |
+          echo "Installing RelixQ CLI..."
+          curl -sSL https://relixq-gateway.agreeableglacier-31f0d933.eastus.azurecontainerapps.io/cli/linux-amd64 -o /usr/local/bin/relixq || \
+          curl -sSL https://app.na.dev.relixq.com/downloads/relixq -o /usr/local/bin/relixq || true
+          chmod +x /usr/local/bin/relixq || true
+
       - name: Run RelixQ Release Gate
         env:
           RELIXQ_API_URL: ${{ secrets.RELIXQ_API_URL }}
+          RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_KEY }}
           RELIXQ_API_KEY: ${{ secrets.RELIXQ_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           relixq pentest gate \
-            --project "verademo" \
+            --project "01a17dd1-c0a9-75ec-ba41-7cc07d292fe3" \
             --mode block \
             --fail-on high \
+            --fail-on-score-drop 5 \
             --audit gate-audit.json \
             --json
