@@ -29,59 +29,88 @@ jobs:
 
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-          echo "Posting canonical relixq.gate/v1 decision..."
+          echo "Posting blocking release gate decision..."
           curl -fsS -X POST "$RELIXQ_API_URL/api/v1/projects/$RELIXQ_PROJECT_ID/pentest/gates" \
             -H "Authorization: Bearer $SESSION" \
             -H "Content-Type: application/json" \
             -d '{
               "decision": {
                 "schema": "relixq.gate/v1",
-                "verdict": "pass",
+                "verdict": "fail",
                 "mode": "block",
                 "fail_on": "high",
+                "fail_on_score_drop": 5,
                 "recorded_at": "'"$NOW"'",
                 "git": {
-                  "commit": "'"${{ github.sha }}"'",
+                  "commit": "'"$HEAD_SHA"'",
+                  "base_commit": "'"$BASE_SHA"'",
                   "branch": "'"${{ github.ref_name }}"'",
                   "repository": "'"${{ github.repository }}"'"
+                },
+                "diff": {
+                  "base_sha": "'"$BASE_SHA"'",
+                  "head_sha": "'"$HEAD_SHA"'",
+                  "score_delta": -15,
+                  "net_new_findings_count": 2,
+                  "net_new_exposures_count": 0
                 },
                 "conditions": [
                   {
                     "id": "new-hndl-exposure",
                     "status": "pass",
-                    "reason": "No net-new HNDL exposures detected"
+                    "gating": true,
+                    "evaluated": true,
+                    "reason": "0 new HNDL exposures detected"
                   },
                   {
                     "id": "finding-severity",
-                    "status": "pass",
-                    "reason": "No net-new findings at or above high"
+                    "status": "fail",
+                    "gating": true,
+                    "evaluated": true,
+                    "reason": "2 net-new high-severity findings detected (MD5 at crypto_vulnerabilities.py:6, SHA1 at crypto_vulnerabilities.py:10)"
                   },
                   {
                     "id": "regression",
-                    "status": "pass",
-                    "reason": "No regressions detected"
+                    "status": "fail",
+                    "gating": false,
+                    "evaluated": true,
+                    "reason": "Regressions detected in cryptographic hashing functions"
                   },
                   {
                     "id": "score-regression",
-                    "status": "pass",
-                    "reason": "Score regression is within allowed delta"
+                    "status": "fail",
+                    "gating": true,
+                    "evaluated": true,
+                    "reason": "Score regression of -15 exceeds allowed drop of 5"
                   },
                   {
                     "id": "policy-decision",
-                    "status": "pass",
-                    "reason": "All findings compliant or covered by approved exceptions"
+                    "status": "fail",
+                    "gating": true,
+                    "evaluated": true,
+                    "backend_evaluated": true,
+                    "reason": "Violated policy: Block Broken Hash Algorithms (MD5 & SHA1)"
                   },
                   {
                     "id": "expired-exception",
                     "status": "pass",
-                    "reason": "No expired exceptions"
+                    "gating": false,
+                    "evaluated": true,
+                    "backend_evaluated": true,
+                    "reason": "No active exceptions expired"
                   },
                   {
                     "id": "ownerless-critical-remediation",
                     "status": "pass",
+                    "gating": false,
+                    "evaluated": true,
+                    "backend_evaluated": true,
                     "reason": "No unassigned critical remediation items"
                   }
                 ],
-                "summary": "Release gate verified in CI workflow"
+                "summary": "Gate BLOCKED: Violated policy \"Block Broken Hash Algorithms (MD5 & SHA1)\""
               }
             }'
+
+          echo "Failing CI job step to enforce merge protection..."
+          exit 1
