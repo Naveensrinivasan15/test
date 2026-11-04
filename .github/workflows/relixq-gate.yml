@@ -13,42 +13,54 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      statuses: write
       checks: write
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install RelixQ CLI
+      # Step 1: Authenticated download of relixq directly from your RelixQ deployment
+      - name: Install relixq from your RelixQ organization
+        env:
+          RELIXQ_API_URL: ${{ secrets.RELIXQ_API_URL }}
+          RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_TOKEN || secrets.RELIXQ_API_KEY }}
         run: |
-          # 1. Try pip installation (Standard for security/QAST CLI tools)
-          if pip install relixq; then
-            echo "Installed relixq via pip successfully."
-          elif npm install -g @relixq/cli; then
-            echo "Installed @relixq/cli via npm successfully."
-          else
-            echo "Direct package manager install not found, checking API distribution..."
-            # Check what the endpoint actually responds with
-            curl -sI https://relixq-gateway.agreeableglacier-31f0d933.eastus.azurecontainerapps.io/
-          fi
-          
-          which relixq || echo "relixq binary path not set"
+          set -euo pipefail
+          echo "Exchanging API key for session token..."
+          SESSION="$(curl -fsS -X POST "$RELIXQ_API_URL/auth/api-keys/exchange" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -nc --arg k "$RELIXQ_API_TOKEN" '{apiKey:$k}')" | jq -r '.accessToken')"
+          echo "::add-mask::$SESSION"
 
+          echo "Fetching latest CLI release info..."
+          REL="$(curl -fsS -H "Authorization: Bearer $SESSION" "$RELIXQ_API_URL/auth/cli/releases/latest")"
+          VERSION="$(echo "$REL" | jq -r .version)"
+          TAG="$(echo "$REL" | jq -r .tag)"
+          NAME="relixq_${VERSION}_linux_amd64.tar.gz"
+
+          echo "Downloading $NAME..."
+          mkdir -p "$RUNNER_TEMP/relixq" && cd "$RUNNER_TEMP/relixq"
+          curl -fsS -H "Authorization: Bearer $SESSION" -o checksums.txt "$RELIXQ_API_URL/auth/cli/releases/$TAG/assets/checksums.txt"
+          curl -fsS -H "Authorization: Bearer $SESSION" -o "$NAME" "$RELIXQ_API_URL/auth/cli/releases/$TAG/assets/$NAME"
+          grep " $NAME\$" checksums.txt | sha256sum -c -
+          tar -xzf "$NAME" && rm "$NAME"
+          echo "$RUNNER_TEMP/relixq" >> "$GITHUB_PATH"
+
+      # Step 2: Confirm CLI installation
+      - name: Verify CLI Version
+        run: |
+          relixq version
+
+      # Step 3: Run Release Gate using the project variable
       - name: Run RelixQ Release Gate
         env:
           RELIXQ_API_URL: ${{ secrets.RELIXQ_API_URL }}
-          RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_KEY }}
-          RELIXQ_API_KEY: ${{ secrets.RELIXQ_API_KEY }}
+          RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_TOKEN || secrets.RELIXQ_API_KEY }}
+          RELIXQ_PROJECT: ${{ vars.RELIXQ_PROJECT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           relixq pentest gate \
-            --project "01a17dd1-c0a9-75ec-ba41-7cc07d292fe3" \
+            --project "$RELIXQ_PROJECT" \
             --mode block \
             --fail-on high \
             --fail-on-score-drop 5 \
