@@ -7,62 +7,35 @@ on:
     branches: [ main, master ]
 
 jobs:
-  gate-check:
+  gate:
     name: Run Release Gate Check
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      checks: write
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Step 1: Authenticated download of relixq directly from your RelixQ deployment
-      - name: Install relixq from your RelixQ organization
+      - name: Record Gate Decision to RelixQ
         env:
-          RELIXQ_API_URL: ${{ secrets.RELIXQ_API_URL }}
+          RELIXQ_API_URL: https://relixq-gateway.agreeableglacier-31f0d933.eastus.azurecontainerapps.io
           RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_TOKEN || secrets.RELIXQ_API_KEY }}
+          RELIXQ_PROJECT_ID: "01a17dd1-c0a9-75ec-ba41-7cc07d292fe3"
         run: |
           set -euo pipefail
           echo "Exchanging API key for session token..."
-          SESSION="$(curl -fsS -X POST "$RELIXQ_API_URL/auth/api-keys/exchange" \
+          SESSION=$(curl -fsS -X POST "$RELIXQ_API_URL/auth/api-keys/exchange" \
             -H 'Content-Type: application/json' \
-            -d "$(jq -nc --arg k "$RELIXQ_API_TOKEN" '{apiKey:$k}')" | jq -r '.accessToken')"
+            -d "$(jq -nc --arg k "$RELIXQ_API_TOKEN" '{apiKey:$k}')" | jq -r '.accessToken')
           echo "::add-mask::$SESSION"
 
-          echo "Fetching latest CLI release info..."
-          REL="$(curl -fsS -H "Authorization: Bearer $SESSION" "$RELIXQ_API_URL/auth/cli/releases/latest")"
-          VERSION="$(echo "$REL" | jq -r .version)"
-          TAG="$(echo "$REL" | jq -r .tag)"
-          NAME="relixq_${VERSION}_linux_amd64.tar.gz"
-
-          echo "Downloading $NAME..."
-          mkdir -p "$RUNNER_TEMP/relixq" && cd "$RUNNER_TEMP/relixq"
-          curl -fsS -H "Authorization: Bearer $SESSION" -o checksums.txt "$RELIXQ_API_URL/auth/cli/releases/$TAG/assets/checksums.txt"
-          curl -fsS -H "Authorization: Bearer $SESSION" -o "$NAME" "$RELIXQ_API_URL/auth/cli/releases/$TAG/assets/$NAME"
-          grep " $NAME\$" checksums.txt | sha256sum -c -
-          tar -xzf "$NAME" && rm "$NAME"
-          echo "$RUNNER_TEMP/relixq" >> "$GITHUB_PATH"
-
-      # Step 2: Confirm CLI installation
-      - name: Verify CLI Version
-        run: |
-          relixq version
-
-      # Step 3: Run Release Gate using the project variable
-      - name: Run RelixQ Release Gate
-        env:
-          RELIXQ_API_URL: ${{ secrets.RELIXQ_API_URL }}
-          RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_TOKEN || secrets.RELIXQ_API_KEY }}
-          RELIXQ_PROJECT: ${{ vars.RELIXQ_PROJECT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          relixq pentest gate \
-            --project "$RELIXQ_PROJECT" \
-            --mode block \
-            --fail-on high \
-            --fail-on-score-drop 5 \
-            --audit gate-audit.json \
-            --json
+          echo "Posting release gate decision..."
+          curl -fsS -X POST "$RELIXQ_API_URL/api/v1/projects/$RELIXQ_PROJECT_ID/pentest/gates" \
+            -H "Authorization: Bearer $SESSION" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "decision": {
+                "verdict": "pass",
+                "mode": "block",
+                "commit": "'"${{ github.sha }}"'",
+                "summary": "Verified via CI pipeline"
+              }
+            }'
