@@ -10,15 +10,25 @@ jobs:
   gate:
     name: Run Release Gate Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Record Gate Decision to RelixQ
         env:
           RELIXQ_API_URL: https://relixq-gateway.agreeableglacier-31f0d933.eastus.azurecontainerapps.io
           RELIXQ_API_TOKEN: ${{ secrets.RELIXQ_API_TOKEN || secrets.RELIXQ_API_KEY }}
           RELIXQ_PROJECT_ID: "01a17dd1-c0a9-75ec-ba41-7cc07d292fe3"
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+          REPO_NAME: ${{ github.repository }}
         run: |
           set -euo pipefail
           echo "Exchanging API key for session token..."
@@ -28,8 +38,9 @@ jobs:
           echo "::add-mask::$SESSION"
 
           NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BASE_SHA=$(git rev-parse HEAD~1 2>/dev/null || echo "$COMMIT_SHA")
 
-          echo "Posting blocking release gate decision..."
+          echo "Posting blocking release gate decision to RelixQ..."
           curl -fsS -X POST "$RELIXQ_API_URL/api/v1/projects/$RELIXQ_PROJECT_ID/pentest/gates" \
             -H "Authorization: Bearer $SESSION" \
             -H "Content-Type: application/json" \
@@ -42,14 +53,14 @@ jobs:
                 "fail_on_score_drop": 5,
                 "recorded_at": "'"$NOW"'",
                 "git": {
-                  "commit": "'"$HEAD_SHA"'",
+                  "commit": "'"$COMMIT_SHA"'",
                   "base_commit": "'"$BASE_SHA"'",
-                  "branch": "'"${{ github.ref_name }}"'",
-                  "repository": "'"${{ github.repository }}"'"
+                  "branch": "'"$BRANCH_NAME"'",
+                  "repository": "'"$REPO_NAME"'"
                 },
                 "diff": {
                   "base_sha": "'"$BASE_SHA"'",
-                  "head_sha": "'"$HEAD_SHA"'",
+                  "head_sha": "'"$COMMIT_SHA"'",
                   "score_delta": -15,
                   "net_new_findings_count": 2,
                   "net_new_exposures_count": 0
@@ -67,7 +78,7 @@ jobs:
                     "status": "fail",
                     "gating": true,
                     "evaluated": true,
-                    "reason": "2 net-new high-severity findings detected (MD5 at crypto_vulnerabilities.py:6, SHA1 at crypto_vulnerabilities.py:10)"
+                    "reason": "2 net-new high findings: MD5 and SHA1 in crypto_vulnerabilities.py"
                   },
                   {
                     "id": "regression",
@@ -112,5 +123,5 @@ jobs:
               }
             }'
 
-          echo "Failing CI job step to enforce merge protection..."
+          echo "Gate failed on policy violation. Exiting with code 1 to block CI."
           exit 1
