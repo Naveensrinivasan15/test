@@ -20,12 +20,25 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install RelixQ CLI
         run: |
-          echo "Installing RelixQ CLI..."
-          curl -sSL https://relixq-gateway.agreeableglacier-31f0d933.eastus.azurecontainerapps.io/cli/linux-amd64 -o /usr/local/bin/relixq || \
-          curl -sSL https://app.na.dev.relixq.com/downloads/relixq -o /usr/local/bin/relixq || true
-          chmod +x /usr/local/bin/relixq || true
+          # 1. Try pip installation (Standard for security/QAST CLI tools)
+          if pip install relixq; then
+            echo "Installed relixq via pip successfully."
+          elif npm install -g @relixq/cli; then
+            echo "Installed @relixq/cli via npm successfully."
+          else
+            echo "Direct package manager install not found, checking API distribution..."
+            # Check what the endpoint actually responds with
+            curl -sI https://relixq-gateway.agreeableglacier-31f0d933.eastus.azurecontainerapps.io/
+          fi
+          
+          which relixq || echo "relixq binary path not set"
 
       - name: Run RelixQ Release Gate
         env:
