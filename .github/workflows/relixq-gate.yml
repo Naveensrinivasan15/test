@@ -1,0 +1,28 @@
+name: RelixQ Release Gate
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  gate:
+    name: Run Release Gate Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run RelixQ Release Gate
+        env:
+          RELIXQ_API_URL: ${{ secrets.RELIXQ_API_URL }}
+          RELIXQ_API_KEY: ${{ secrets.RELIXQ_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          relixq pentest gate \
+            --project "verademo" \
+            --mode block \
+            --fail-on high \
+            --audit gate-audit.json \
+            --json
