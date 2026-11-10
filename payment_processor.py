@@ -1,28 +1,26 @@
 import hashlib
-import requests
-from Crypto.Cipher import AES
+import urllib.request
 
 class PaymentRecord:
-    def __init__(self, cardholder_name, payment_account_number, payment_authorization_record):
-        # Explicitly matching the exact aliases & examples of Payment / PCI
-        self.cardholder_data = cardholder_name
-        self.payment_account_numbers = payment_account_number
-        self.payment_authorization_records = payment_authorization_record
+    def __init__(self):
+        # Exact alias strings from Payment / PCI classification
+        self.cardholder_data = "John Doe"
+        self.payment_account_numbers = "4111222233334444"
+        self.payment_authorization_records = "AUTH_98765"
 
-    def store_and_transmit(self):
-        # 1. Quantum-vulnerable cipher / classical break processing the data
-        key = b'0123456789abcdef'
-        cipher = AES.new(key, AES.MODE_ECB)
+    def process_and_send(self):
+        # 1. Use hashlib SHA1 (already proven to be recognized as 'Classically broken' by your scanner)
         payload = f"{self.payment_account_numbers}:{self.payment_authorization_records}".encode('utf-8')
-        
-        # Pad payload to 16 bytes for AES block size
-        padded_payload = payload.ljust(64, b' ')
-        encrypted_data = cipher.encrypt(padded_payload)
-        
-        # 2. Flow creation to an external endpoint (wires reachability & attack path)
-        endpoint = "https://api.payment-gateway.com/v1/charge"
-        requests.post(endpoint, data=encrypted_data)
+        hashed_token = hashlib.sha1(payload).hexdigest()
+
+        # 2. Standard outbound network call to generate the endpoint flow
+        url = "https://api.payment-gateway.com/v1/charge"
+        req = urllib.request.Request(url, data=hashed_token.encode('utf-8'), method='POST')
+        try:
+            urllib.request.urlopen(req, timeout=1)
+        except Exception:
+            pass
 
 if __name__ == "__main__":
-    tx = PaymentRecord("John Doe", "4111222233334444", "AUTH-987654")
-    tx.store_and_transmit()
+    p = PaymentRecord()
+    p.process_and_send()
